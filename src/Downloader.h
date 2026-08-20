@@ -2,6 +2,7 @@
 #define DOWNLOADER_H
 
 #include <windows.h>
+#include <wininet.h>
 #include <string>
 #include <functional>
 

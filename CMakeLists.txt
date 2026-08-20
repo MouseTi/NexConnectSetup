@@ -6,11 +6,14 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
 # Windows-specific settings for single exe
 if(WIN32)
-    set(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} /SUBSYSTEM:WINDOWS")
-    add_compile_definitions(UNICODE _UNICODE)
+    set(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} /SUBSYSTEM:WINDOWS /ENTRY:wWinMainCRTStartup")
+    add_compile_definitions(UNICODE _UNICODE WIN32_LEAN_AND_MEAN)
     
-    # Static linking runtime
+    # Static linking runtime - no DLL dependencies
     set(CMAKE_MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>")
+    
+    # Additional linker flags for static linking
+    set(CMAKE_EXE_LINKER_FLAGS_RELEASE "${CMAKE_EXE_LINKER_FLAGS_RELEASE} /INCREMENTAL:NO /OPT:REF /OPT:ICF")
 endif()
 
 # Source files
@@ -18,14 +21,14 @@ set(SOURCES
     src/main.cpp
     src/Installer.cpp
     src/Downloader.cpp
-    src/UI.cpp
+    src/SplashWindow.cpp
     src/Utils.cpp
 )
 
 set(HEADERS
     src/Installer.h
     src/Downloader.h
-    src/UI.h
+    src/SplashWindow.h
     src/Utils.h
     src/resource.h
 )

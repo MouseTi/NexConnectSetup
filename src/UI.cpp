@@ -211,7 +211,17 @@ void UI::CreateControls() {
 
 void UI::SetDarkMode() {
     BOOL USE_DARK_MODE = TRUE;
-    DwmSetWindowAttribute(m_hwnd, 20, &USE_DARK_MODE, sizeof(USE_DARK_MODE));
+    // DWMWA_USE_IMMERSIVE_DARK_MODE = 20
+    typedef HRESULT (WINAPI* DwmSetWindowAttributeFunc)(HWND, DWORD, LPCVOID, DWORD);
+    HMODULE hDwmapi = LoadLibraryW(L"dwmapi.dll");
+    if (hDwmapi) {
+        DwmSetWindowAttributeFunc pDwmSetWindowAttribute = 
+            (DwmSetWindowAttributeFunc)GetProcAddress(hDwmapi, "DwmSetWindowAttribute");
+        if (pDwmSetWindowAttribute) {
+            pDwmSetWindowAttribute(m_hwnd, 20, &USE_DARK_MODE, sizeof(USE_DARK_MODE));
+        }
+        FreeLibrary(hDwmapi);
+    }
 }
 
 void UI::SetProgress(int progress) {

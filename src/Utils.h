@@ -2,6 +2,8 @@
 #define UTILS_H
 
 #include <windows.h>
+#include <shlobj.h>
+#include <wininet.h>
 #include <string>
 #include <vector>
 

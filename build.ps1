@@ -19,7 +19,7 @@ Set-Location "build"
 
 # Generate Visual Studio project
 Write-Host "Generating Visual Studio project..." -ForegroundColor Yellow
-cmake .. -G "Visual Studio 16 2019" -A x64
+cmake .. -G "Visual Studio 17 2022" -A x64
 
 if ($LASTEXITCODE -ne 0) {
     Write-Host "CMake generation failed!" -ForegroundColor Red

@@ -2,6 +2,7 @@
 #define INSTALLER_H
 
 #include <windows.h>
+#include <objbase.h>
 #include <string>
 #include <functional>
 
