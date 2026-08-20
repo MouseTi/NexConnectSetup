@@ -22,7 +22,6 @@ set(SOURCES
     src/Installer.cpp
     src/Downloader.cpp
     src/SplashWindow.cpp
-    src/ManifestParser.cpp
     src/Utils.cpp
 )
 
@@ -30,7 +29,6 @@ set(HEADERS
     src/Installer.h
     src/Downloader.h
     src/SplashWindow.h
-    src/ManifestParser.h
     src/Utils.h
     src/resource.h
 )

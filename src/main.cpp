@@ -2,14 +2,13 @@
 #include <objbase.h>
 #include "SplashWindow.h"
 #include "Installer.h"
-#include "ManifestParser.h"
 #include "Utils.h"
 #include <thread>
 
 #pragma comment(lib, "ole32.lib")
 
-// Manifest URL - always points to latest version
-const wchar_t* MANIFEST_URL = L"https://github.com/MouseTi/NexConnect/releases/latest/download/manifest.json";
+// GitHub release URL - thay đổi link này khi đã upload package lên GitHub
+const wchar_t* DOWNLOAD_URL = L"https://github.com/MouseTi/NexConnectSetup/releases/download/v1.0.0/NexConnect.zip";
 
 class Application {
 public:
@@ -29,9 +28,31 @@ public:
     }
     
     int Run() {
-        m_splash.Show();
+        // Check if already installed
+        if (m_installer.IsAlreadyInstalled()) {
+            // Already installed, just launch the app directly
+            m_splash.SetProgress(100);
+            m_splash.SetStatus(L"Launching NexConnect...");
+            m_splash.Show();
+            
+            Sleep(800);
+            
+            if (m_installer.LaunchApplication()) {
+                // Successfully launched, close installer
+                PostQuitMessage(0);
+                return 0;
+            } else {
+                MessageBoxW(nullptr, 
+                    L"Failed to launch NexConnect!\nPlease try running it from the shortcut.", 
+                    L"Error", 
+                    MB_OK | MB_ICONERROR);
+                PostQuitMessage(1);
+                return 1;
+            }
+        }
         
-        // Start installation automatically
+        // Not installed yet, show splash and start installation
+        m_splash.Show();
         StartInstallation();
         
         // Message loop
@@ -98,50 +119,15 @@ private:
             return;
         }
         
-        // Check if already installed
-        std::wstring installPath = m_installer.GetInstallPath();
-        std::wstring exePath = installPath + L"\\NexConnect.exe";
-        
-        if (Utils::FileExists(exePath)) {
-            // Already installed, just launch
-            m_splash.SetStatus(L"Launching NexConnect...");
-            Sleep(500);
-            
-            if (Utils::LaunchProcess(exePath)) {
-                PostQuitMessage(0);
-            } else {
-                MessageBoxW(nullptr, 
-                    L"Failed to launch NexConnect!\nPlease try reinstalling.", 
-                    L"Error", 
-                    MB_OK | MB_ICONERROR);
-                PostQuitMessage(1);
-            }
-            return;
-        }
-        
         m_isInstalling = true;
-        m_splash.SetStatus(L"Fetching latest version...");
+        m_splash.SetStatus(L"Initializing...");
         
         std::thread installThread([this]() {
             auto progressCallback = [this](int progress, const std::wstring& status) {
                 PostMessage(m_splash.GetHwnd(), WM_USER + 1, progress, (LPARAM)new std::wstring(status));
             };
             
-            // Fetch manifest
-            progressCallback(5, L"Checking latest version...");
-            ManifestInfo manifest = ManifestParser::ParseFromUrl(MANIFEST_URL);
-            
-            if (!manifest.isValid || manifest.downloadUrl.empty()) {
-                progressCallback(0, L"Failed to fetch version info");
-                PostMessage(m_splash.GetHwnd(), WM_USER + 2, 0, 0);
-                return;
-            }
-            
-            std::wstring statusMsg = L"Installing NexConnect v" + manifest.version;
-            progressCallback(10, statusMsg);
-            
-            // Install with download URL from manifest
-            bool success = m_installer.Install(manifest.downloadUrl, progressCallback);
+            bool success = m_installer.Install(DOWNLOAD_URL, progressCallback);
             
             PostMessage(m_splash.GetHwnd(), WM_USER + 2, success ? 1 : 0, 0);
         });

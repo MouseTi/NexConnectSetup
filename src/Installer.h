@@ -13,6 +13,9 @@ public:
     Installer();
     ~Installer();
     
+    // Check if already installed
+    bool IsAlreadyInstalled() const;
+    
     bool Install(
         const std::wstring& downloadUrl,
         ProgressCallback callback = nullptr
@@ -23,6 +26,7 @@ public:
     
     std::wstring GetInstallPath() const { return m_installPath; }
     std::wstring GetExePath() const;
+    bool LaunchApplication();
     
 private:
     bool m_isInstalling;
@@ -34,7 +38,6 @@ private:
     bool DownloadPackage(const std::wstring& url, ProgressCallback callback);
     bool ExtractPackage(ProgressCallback callback);
     bool CreateDesktopShortcut();
-    bool LaunchApplication();
     void Cleanup();
 };
 

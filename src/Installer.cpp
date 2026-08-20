@@ -25,6 +25,12 @@ std::wstring Installer::GetExePath() const {
     return m_installPath + L"\\NexConnect.exe";
 }
 
+bool Installer::IsAlreadyInstalled() const {
+    // Check if install directory exists and NexConnect.exe exists
+    return Utils::DirectoryExists(m_installPath) && 
+           Utils::FileExists(GetExePath());
+}
+
 bool Installer::Install(
     const std::wstring& downloadUrl,
     ProgressCallback callback
