@@ -14,11 +14,6 @@ RequestExecutionLevel user
 ShowInstDetails show
 
 !include "MUI2.nsh"
-!include "nsDialogs.nsh"
-
-; Use INetC plugin for downloads
-; Download from: https://nsis.sourceforge.io/mediawiki/images/c/c9/Inetc.zip
-!addplugindir "plugins"
 
 !define MUI_ICON "src\iconapp\nex-logo.ico"
 !define MUI_HEADERIMAGE
@@ -40,19 +35,17 @@ Section "Download and Install" SEC01
     CreateDirectory "$INSTDIR"
     
     DetailPrint "Downloading NexConnect.exe..."
-    inetc::get /CAPTION "Downloading NexConnect..." /CANCELTEXT "Cancel" \
-        "${DOWNLOAD_URL}/NexConnect.exe" "$INSTDIR\NexConnect.exe" /END
+    NSISdl::download "${DOWNLOAD_URL}/NexConnect.exe" "$INSTDIR\NexConnect.exe"
     Pop $0
-    StrCmp $0 "OK" download_dll
+    StrCmp $0 "success" download_dll
         MessageBox MB_OK|MB_ICONSTOP "Download failed: $0"
         Abort
     
     download_dll:
     DetailPrint "Downloading nexus_runtime.dll..."
-    inetc::get /CAPTION "Downloading runtime..." /CANCELTEXT "Cancel" \
-        "${DOWNLOAD_URL}/nexus_runtime.dll" "$INSTDIR\nexus_runtime.dll" /END
+    NSISdl::download "${DOWNLOAD_URL}/nexus_runtime.dll" "$INSTDIR\nexus_runtime.dll"
     Pop $0
-    StrCmp $0 "OK" create_shortcuts
+    StrCmp $0 "success" create_shortcuts
         MessageBox MB_OK|MB_ICONEXCLAMATION "Warning: Failed to download DLL: $0"
     
     create_shortcuts:
