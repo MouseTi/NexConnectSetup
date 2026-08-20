@@ -28,31 +28,17 @@ public:
     }
     
     int Run() {
-        // Check if already installed
-        if (m_installer.IsAlreadyInstalled()) {
-            // Already installed, just launch the app directly
-            m_splash.SetProgress(100);
-            m_splash.SetStatus(L"Launching NexConnect...");
-            m_splash.Show();
-            
-            Sleep(800);
-            
-            if (m_installer.LaunchApplication()) {
-                // Successfully launched, close installer
-                PostQuitMessage(0);
-                return 0;
-            } else {
-                MessageBoxW(nullptr, 
-                    L"Failed to launch NexConnect!\nPlease try running it from the shortcut.", 
-                    L"Error", 
-                    MB_OK | MB_ICONERROR);
-                PostQuitMessage(1);
-                return 1;
-            }
+        // Check if app is already installed
+        std::wstring appPath = Utils::GetAppDataPath() + L"\\NexConnect\\NexConnect.exe";
+        if (Utils::FileExists(appPath)) {
+            // App already installed, just launch it
+            Utils::LaunchProcess(appPath);
+            return 0;
         }
         
-        // Not installed yet, show splash and start installation
         m_splash.Show();
+        
+        // Start installation automatically
         StartInstallation();
         
         // Message loop
@@ -76,10 +62,9 @@ public:
                     m_splash.SetProgress(100);
                     m_splash.SetStatus(L"Complete! Launching...");
                     
-                    // Close installer after a short delay
+                    // Close installer immediately after launch
                     std::thread([this]() {
-                        Sleep(1500);
-                        m_splash.Close();
+                        Sleep(800);
                         PostQuitMessage(0);
                     }).detach();
                 } else {
