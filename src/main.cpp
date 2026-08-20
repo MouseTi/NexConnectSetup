@@ -62,9 +62,12 @@ public:
                     m_splash.SetProgress(100);
                     m_splash.SetStatus(L"Complete! Launching...");
                     
-                    // Close installer immediately after launch
+                    // Launch app and close installer
                     std::thread([this]() {
-                        Sleep(800);
+                        Sleep(500);
+                        std::wstring appPath = Utils::GetAppDataPath() + L"\\NexConnect\\NexConnect.exe";
+                        Utils::LaunchProcess(appPath);
+                        Sleep(300);
                         PostQuitMessage(0);
                     }).detach();
                 } else {
