@@ -1,282 +1,137 @@
 #include "SetupManager.h"
-
-#include <QCoreApplication>
-#include <QCryptographicHash>
+#include "DownloadManager.h"
+#include <QStandardPaths>
 #include <QDir>
+#include <QProcess>
 #include <QFile>
-#include <QFileInfo>
-#include <QJsonArray>
 #include <QJsonDocument>
 #include <QJsonObject>
-#include <QNetworkReply>
-#include <QNetworkRequest>
-#include <QProcess>
-#include <QStandardPaths>
-#include <QTimer>
-
-#define NEXCONNECT_MANIFEST_URL "https://github.com/MouseTi/NexConnect/releases/latest/download/manifest.json"
+#include <QJsonArray>
+#include <QDebug>
+#include <windows.h>
+#include <shlobj.h>
+#include <objbase.h>
+#include <shobjidl.h>
 
 SetupManager::SetupManager(QObject* parent)
     : QObject(parent)
-    , m_manifestUrl(QUrl(QString::fromUtf8(NEXCONNECT_MANIFEST_URL)))
+    , m_downloader(new DownloadManager(this))
+    , m_currentFileIndex(0)
+    , m_totalSize(0)
+    , m_downloadedSize(0)
+    , m_currentStage(Stage::Initializing)
 {
+    // Get AppData/Local path
+    QString appData = QStandardPaths::writableLocation(QStandardPaths::AppLocalDataLocation);
+    m_installPath = appData.left(appData.lastIndexOf('/')) + "/NexConnect";
+
+    connect(m_downloader, &DownloadManager::progressChanged,
+            this, &SetupManager::progressChanged);
+    connect(m_downloader, &DownloadManager::downloadComplete,
+            this, &SetupManager::onFileDownloaded);
 }
 
-QString SetupManager::installPath() const
+QString SetupManager::getInstallPath() const
 {
-    const QString appData = QStandardPaths::writableLocation(QStandardPaths::AppDataLocation);
-    // AppDataLocation returns something like C:\Users\<user>\AppData\Roaming\NexConnectSetup
-    // We want C:\Users\<user>\AppData\Roaming\NexConnect
-    QDir appDataDir(appData);
-    appDataDir.cdUp(); // go to Roaming
-    return appDataDir.filePath("NexConnect");
+    return m_installPath;
 }
 
-QVariantMap SetupManager::status() const
+void SetupManager::startSetup()
 {
-    QVariantMap map;
-    map["status"] = stateName();
-    map["message"] = m_message;
-    map["version"] = m_version;
-    map["downloaded"] = m_downloaded;
-    map["total"] = m_total;
-    map["progress"] = m_total > 0 ? static_cast<int>((m_downloaded * 100) / m_total) : 0;
-    return map;
+    m_currentStage = Stage::CreatingDirectories;
+    emit stageChanged("Creating directories");
+    createDirectories();
 }
 
-QString SetupManager::stateName() const
+void SetupManager::createDirectories()
 {
-    switch (m_state) {
-    case State::Checking: return "Checking";
-    case State::Downloading: return "Downloading";
-    case State::Installing: return "Installing";
-    case State::Complete: return "Complete";
-    case State::Error: return "Error";
-    case State::Idle:
-    default: return "Idle";
-    }
-}
-
-void SetupManager::setState(State state)
-{
-    m_state = state;
-    emitStatus();
-}
-
-void SetupManager::setError(const QString& message)
-{
-    m_state = State::Error;
-    m_message = message;
-    emitStatus();
-    emit installationFailed(message);
-}
-
-void SetupManager::emitStatus()
-{
-    emit statusChanged(status());
-}
-
-void SetupManager::startInstallation()
-{
-    if (m_state == State::Downloading || m_state == State::Installing) {
-        return;
-    }
-
-    m_files.clear();
-    m_currentFileIndex = 0;
-    m_downloaded = 0;
-    m_total = 0;
-
-    if (!createInstallDirectory()) {
-        setError("Failed to create installation directory");
-        return;
-    }
-
-    checkManifest();
-}
-
-bool SetupManager::createInstallDirectory()
-{
-    const QString path = installPath();
+    emit progressChanged(5, "Creating installation directory...");
+    
     QDir dir;
-    if (!dir.mkpath(path)) {
-        return false;
-    }
-    return true;
-}
-
-void SetupManager::checkManifest()
-{
-    setState(State::Checking);
-    m_message = "Checking for latest version...";
-    emitStatus();
-
-    QNetworkRequest req(m_manifestUrl);
-    req.setAttribute(QNetworkRequest::RedirectPolicyAttribute, QNetworkRequest::NoLessSafeRedirectPolicy);
-    req.setHeader(QNetworkRequest::UserAgentHeader, "NexConnectSetup/1.0");
-    req.setTransferTimeout(5000);
-
-    QNetworkReply* reply = m_network.get(req);
-    connect(reply, &QNetworkReply::finished, this, [this, reply]() {
-        handleManifestReply(reply);
-        reply->deleteLater();
-    });
-}
-
-void SetupManager::handleManifestReply(QNetworkReply* reply)
-{
-    if (reply->error() != QNetworkReply::NoError) {
-        setError("Failed to download manifest: " + reply->errorString());
-        return;
-    }
-
-    const QJsonDocument doc = QJsonDocument::fromJson(reply->readAll());
-    if (!doc.isObject()) {
-        setError("Invalid manifest format");
-        return;
-    }
-
-    const QJsonObject obj = doc.object();
-    m_version = obj.value("version").toString();
-    const QString url = obj.value("url").toString();
-    m_binaryUrl = QUrl(url);
-    m_binarySha256 = obj.value("sha256").toString().trimmed().toLower();
-
-    if (m_version.isEmpty() || !m_binaryUrl.isValid()) {
-        setError("Manifest missing required fields");
-        return;
-    }
-
-    // Parse support files
-    const QJsonValue filesVal = obj.value("files");
-    if (filesVal.isArray()) {
-        const QJsonArray arr = filesVal.toArray();
-        for (const QJsonValue& v : arr) {
-            if (!v.isObject()) continue;
-            const QJsonObject fo = v.toObject();
-            FileEntry e;
-            e.path = fo.value("path").toString();
-            e.url = QUrl(fo.value("url").toString());
-            e.sha256 = fo.value("sha256").toString().trimmed().toLower();
-            if (e.path.isEmpty() || !e.url.isValid()) continue;
-            if (e.path.contains("..") || QDir::isAbsolutePath(e.path)) continue;
-            m_files.append(e);
+    if (!dir.exists(m_installPath)) {
+        if (!dir.mkpath(m_installPath)) {
+            emit setupComplete(false, "Failed to create installation directory");
+            return;
         }
     }
 
-    m_message = "Found NexConnect v" + m_version;
-    emitStatus();
-
-    // Start downloading
-    QTimer::singleShot(500, this, &SetupManager::beginDownload);
+    m_currentStage = Stage::DownloadingManifest;
+    emit stageChanged("Downloading manifest");
+    downloadManifest();
 }
 
-void SetupManager::beginDownload()
+void SetupManager::downloadManifest()
 {
-    setState(State::Downloading);
-    m_message = "Downloading NexConnect...";
-    m_currentFileIndex = 0;
-    emitStatus();
+    emit progressChanged(10, "Fetching file list...");
+    
+    // GitHub release manifest URL
+    // Replace with your actual GitHub release URL
+    QString manifestUrl = "https://raw.githubusercontent.com/MouseTi/NexConnectSetup/main/manifest.json";
+    
+    // For now, use hardcoded file list
+    // TODO: Download and parse manifest from GitHub
+    
+    m_filesToDownload.clear();
+    
+    // Main executable
+    m_filesToDownload.append({
+        "https://github.com/MouseTi/NexConnectSetup/releases/download/v1.0.0/NexConnect.exe",
+        "NexConnect.exe",
+        5 * 1024 * 1024  // 5MB estimate
+    });
+    
+    // DLL files
+    m_filesToDownload.append({
+        "https://github.com/MouseTi/NexConnectSetup/releases/download/v1.0.0/nexus_runtime.dll",
+        "nexus_runtime.dll",
+        2 * 1024 * 1024  // 2MB estimate
+    });
 
+    // Calculate total size
+    m_totalSize = 0;
+    for (const auto& file : m_filesToDownload) {
+        m_totalSize += file.size;
+    }
+
+    m_currentStage = Stage::DownloadingFiles;
+    emit stageChanged("Downloading files");
+    downloadFiles();
+}
+
+void SetupManager::downloadFiles()
+{
+    m_currentFileIndex = 0;
+    m_downloadedSize = 0;
     downloadNextFile();
 }
 
 void SetupManager::downloadNextFile()
 {
-    // Download support files first
-    if (m_currentFileIndex < m_files.size()) {
-        const FileEntry& e = m_files[m_currentFileIndex];
-        const QString destPath = QDir(installPath()).filePath(e.path);
-        
-        // Create parent directory
-        QFileInfo fi(destPath);
-        QDir().mkpath(fi.absolutePath());
-
-        QFile* file = new QFile(destPath);
-        if (!file->open(QIODevice::WriteOnly | QIODevice::Truncate)) {
-            file->deleteLater();
-            setError("Failed to create file: " + e.path);
-            return;
-        }
-
-        m_message = "Downloading " + e.path + "...";
-        m_downloaded = 0;
-        m_total = 0;
-        emitStatus();
-
-        QNetworkRequest req(e.url);
-        req.setAttribute(QNetworkRequest::RedirectPolicyAttribute, QNetworkRequest::NoLessSafeRedirectPolicy);
-        req.setHeader(QNetworkRequest::UserAgentHeader, "NexConnectSetup/1.0");
-
-        QNetworkReply* reply = m_network.get(req);
-        file->setParent(reply);
-
-        connect(reply, &QNetworkReply::readyRead, this, [reply, file]() {
-            file->write(reply->readAll());
-        });
-        connect(reply, &QNetworkReply::downloadProgress, this, [this](qint64 received, qint64 total) {
-            m_downloaded = received;
-            m_total = total;
-            emitStatus();
-        });
-        connect(reply, &QNetworkReply::finished, this, [this, reply, file, destPath, e]() {
-            file->write(reply->readAll());
-            handleFileDownloadFinished(reply, file, destPath, e);
-            reply->deleteLater();
-        });
+    if (m_currentFileIndex >= m_filesToDownload.size()) {
+        // All files downloaded
+        m_currentStage = Stage::CreatingShortcut;
+        emit stageChanged("Creating shortcut");
+        createDesktopShortcut();
         return;
     }
 
-    // Download main binary
-    const QString binaryPath = QDir(installPath()).filePath("NexConnect.exe");
-    QFile* file = new QFile(binaryPath);
-    if (!file->open(QIODevice::WriteOnly | QIODevice::Truncate)) {
-        file->deleteLater();
-        setError("Failed to create NexConnect.exe");
-        return;
-    }
+    const FileToDownload& file = m_filesToDownload[m_currentFileIndex];
+    QString destPath = m_installPath + "/" + file.filename;
+    
+    int overallProgress = 20 + (m_currentFileIndex * 60 / m_filesToDownload.size());
+    emit progressChanged(overallProgress, 
+        QString("Downloading %1/%2: %3")
+            .arg(m_currentFileIndex + 1)
+            .arg(m_filesToDownload.size())
+            .arg(file.filename));
 
-    m_message = "Downloading NexConnect.exe...";
-    m_downloaded = 0;
-    m_total = 0;
-    emitStatus();
-
-    QNetworkRequest req(m_binaryUrl);
-    req.setAttribute(QNetworkRequest::RedirectPolicyAttribute, QNetworkRequest::NoLessSafeRedirectPolicy);
-    req.setHeader(QNetworkRequest::UserAgentHeader, "NexConnectSetup/1.0");
-
-    QNetworkReply* reply = m_network.get(req);
-    file->setParent(reply);
-
-    connect(reply, &QNetworkReply::readyRead, this, [reply, file]() {
-        file->write(reply->readAll());
-    });
-    connect(reply, &QNetworkReply::downloadProgress, this, [this](qint64 received, qint64 total) {
-        m_downloaded = received;
-        m_total = total;
-        emitStatus();
-    });
-    connect(reply, &QNetworkReply::finished, this, [this, reply, file, binaryPath]() {
-        file->write(reply->readAll());
-        handleBinaryDownloadFinished(reply, file, binaryPath);
-        reply->deleteLater();
-    });
+    m_downloader->startDownload(file.url, destPath);
 }
 
-void SetupManager::handleFileDownloadFinished(QNetworkReply* reply, QFile* file, const QString& path, const FileEntry& entry)
+void SetupManager::onFileDownloaded(bool success, const QString& message)
 {
-    file->flush();
-    file->close();
-
-    if (reply->error() != QNetworkReply::NoError) {
-        QFile::remove(path);
-        setError("Download failed: " + reply->errorString());
-        return;
-    }
-
-    if (!entry.sha256.isEmpty() && !verifySha256(path, entry.sha256)) {
-        QFile::remove(path);
-        setError("SHA256 verification failed for: " + entry.path);
+    if (!success) {
+        emit setupComplete(false, "Download failed: " + message);
         return;
     }
 
@@ -284,91 +139,67 @@ void SetupManager::handleFileDownloadFinished(QNetworkReply* reply, QFile* file,
     downloadNextFile();
 }
 
-void SetupManager::handleBinaryDownloadFinished(QNetworkReply* reply, QFile* file, const QString& path)
+void SetupManager::createDesktopShortcut()
 {
-    file->flush();
-    file->close();
+    emit progressChanged(85, "Creating desktop shortcut...");
 
-    if (reply->error() != QNetworkReply::NoError) {
-        QFile::remove(path);
-        setError("Binary download failed: " + reply->errorString());
-        return;
+    // Get desktop path
+    wchar_t desktopPath[MAX_PATH];
+    if (SUCCEEDED(SHGetFolderPathW(NULL, CSIDL_DESKTOPDIRECTORY, NULL, 0, desktopPath))) {
+        QString shortcutPath = QString::fromWCharArray(desktopPath) + "/NexConnect.lnk";
+        QString targetPath = m_installPath + "/NexConnect.exe";
+
+        // Create shortcut using COM
+        CoInitialize(NULL);
+        
+        IShellLinkW* pShellLink = NULL;
+        HRESULT hres = CoCreateInstance(CLSID_ShellLink, NULL, CLSCTX_INPROC_SERVER,
+                                       IID_IShellLinkW, (LPVOID*)&pShellLink);
+        
+        if (SUCCEEDED(hres)) {
+            pShellLink->SetPath(targetPath.toStdWString().c_str());
+            pShellLink->SetWorkingDirectory(m_installPath.toStdWString().c_str());
+            pShellLink->SetDescription(L"NexConnect Launcher");
+
+            IPersistFile* pPersistFile = NULL;
+            hres = pShellLink->QueryInterface(IID_IPersistFile, (LPVOID*)&pPersistFile);
+            
+            if (SUCCEEDED(hres)) {
+                pPersistFile->Save(shortcutPath.toStdWString().c_str(), TRUE);
+                pPersistFile->Release();
+            }
+            
+            pShellLink->Release();
+        }
+        
+        CoUninitialize();
     }
 
-    if (!m_binarySha256.isEmpty() && !verifySha256(path, m_binarySha256)) {
-        QFile::remove(path);
-        setError("SHA256 verification failed for NexConnect.exe");
-        return;
-    }
-
-    finishInstallation();
+    m_currentStage = Stage::Launching;
+    emit stageChanged("Launching application");
+    launchApplication();
 }
 
-bool SetupManager::verifySha256(const QString& filePath, const QString& expected) const
+void SetupManager::launchApplication()
 {
-    QFile file(filePath);
-    if (!file.open(QIODevice::ReadOnly)) return false;
-    QCryptographicHash hash(QCryptographicHash::Sha256);
-    while (!file.atEnd()) {
-        hash.addData(file.read(1024 * 1024));
-    }
-    return QString::fromLatin1(hash.result().toHex()).compare(expected.trimmed(), Qt::CaseInsensitive) == 0;
-}
+    emit progressChanged(95, "Launching NexConnect...");
 
-void SetupManager::finishInstallation()
-{
-    setState(State::Installing);
-    m_message = "Creating shortcuts...";
-    emitStatus();
-
-    if (!createDesktopShortcut()) {
-        // Non-fatal, continue anyway
-    }
-
-    setState(State::Complete);
-    m_message = "Installation complete!";
-    emitStatus();
-
-    emit installationComplete();
-
-    // Launch NexConnect after 1 second
-    QTimer::singleShot(1000, this, &SetupManager::launchNexConnect);
-}
-
-bool SetupManager::createDesktopShortcut()
-{
-#ifdef Q_OS_WIN
-    const QString desktopPath = QStandardPaths::writableLocation(QStandardPaths::DesktopLocation);
-    const QString shortcutPath = QDir(desktopPath).filePath("NexConnect.lnk");
-    const QString targetPath = QDir(installPath()).filePath("NexConnect.exe");
-
-    // Create PowerShell script to create shortcut
-    QStringList psScript;
-    psScript << "$WScriptShell = New-Object -ComObject WScript.Shell";
-    psScript << QString("$Shortcut = $WScriptShell.CreateShortcut('%1')").arg(QDir::toNativeSeparators(shortcutPath));
-    psScript << QString("$Shortcut.TargetPath = '%1'").arg(QDir::toNativeSeparators(targetPath));
-    psScript << QString("$Shortcut.WorkingDirectory = '%1'").arg(QDir::toNativeSeparators(installPath()));
-    psScript << "$Shortcut.Save()";
-
-    const QString script = psScript.join("; ");
+    QString exePath = m_installPath + "/NexConnect.exe";
     
-    QProcess proc;
-    proc.start("powershell.exe", QStringList() << "-NoProfile" << "-Command" << script);
-    proc.waitForFinished(5000);
-    
-    return proc.exitCode() == 0;
-#else
-    return false;
-#endif
+    if (QFile::exists(exePath)) {
+        // Launch the application
+        QProcess::startDetached(exePath, QStringList(), m_installPath);
+        
+        // Wait a moment then finish
+        QTimer::singleShot(1000, this, &SetupManager::finishSetup);
+    } else {
+        emit setupComplete(false, "Installation complete but cannot find NexConnect.exe");
+    }
 }
 
-void SetupManager::launchNexConnect()
+void SetupManager::finishSetup()
 {
-    const QString exePath = QDir(installPath()).filePath("NexConnect.exe");
-    const QString workDir = installPath();
-    
-    bool started = QProcess::startDetached(exePath, QStringList(), workDir);
-    if (started) {
-        QTimer::singleShot(500, qApp, &QCoreApplication::quit);
-    }
+    m_currentStage = Stage::Complete;
+    emit progressChanged(100, "Setup complete!");
+    emit setupComplete(true, "NexConnect has been installed successfully");
 }

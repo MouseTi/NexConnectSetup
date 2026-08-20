@@ -1,4 +1,6 @@
-1 VERSIONINFO
+IDI_ICON1 ICON DISCARDABLE "iconapp/icon.ico"
+
+VS_VERSION_INFO VERSIONINFO
 FILEVERSION 1,0,0,0
 PRODUCTVERSION 1,0,0,0
 FILEFLAGSMASK 0x3fL
@@ -14,9 +16,9 @@ BEGIN
             VALUE "CompanyName", "NexConnect"
             VALUE "FileDescription", "NexConnect Setup"
             VALUE "FileVersion", "1.0.0.0"
-            VALUE "InternalName", "NexConnectSetup"
+            VALUE "InternalName", "NexConnect-Setup"
             VALUE "LegalCopyright", "Copyright (C) 2026"
-            VALUE "OriginalFilename", "NexConnectSetup.exe"
+            VALUE "OriginalFilename", "NexConnect-Setup.exe"
             VALUE "ProductName", "NexConnect Setup"
             VALUE "ProductVersion", "1.0.0.0"
         END
