@@ -32,6 +32,18 @@ install_manifest.txt
 *.zip
 ~*
 
+# Large binary assets (uploaded to GitHub releases instead)
+NexConnect-Setup/data/*.bin
+NexConnect-Setup/resources/*.pak
+NexConnect-Setup/resources/*.dat
+NexConnect-Setup/translations/**/*.pak
+NexConnect-Setup/nex-logo.ico
+test-package/NexConnect/data/*.bin
+test-package/NexConnect/resources/*.pak
+test-package/NexConnect/resources/*.dat
+test-package/NexConnect/translations/**/*.pak
+test-package/NexConnect/nex-logo.ico
+
 # IDE
 .vscode/
 .idea/
