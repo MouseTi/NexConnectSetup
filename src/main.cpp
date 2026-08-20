@@ -31,7 +31,7 @@ public:
         // Check if app is already installed
         std::wstring appPath = Utils::GetAppDataPath() + L"\\NexConnect\\NexConnect.exe";
         if (Utils::FileExists(appPath)) {
-            // App already installed, just launch it (no splash window needed)
+            // App already installed, just launch it
             Utils::LaunchProcess(appPath);
             return 0;
         }
@@ -62,17 +62,14 @@ public:
                     m_splash.SetProgress(100);
                     m_splash.SetStatus(L"Complete! Launching...");
                     
-                    // Launch app and close installer immediately
+                    // Launch app and close installer
                     std::thread([this]() {
-                        Sleep(300);
+                        Sleep(500);
                         std::wstring appPath = Utils::GetAppDataPath() + L"\\NexConnect\\NexConnect.exe";
                         Utils::LaunchProcess(appPath);
                         Sleep(200);
-                        // Destroy splash window first, then quit
-                        if (m_splash.GetHwnd()) {
-                            DestroyWindow(m_splash.GetHwnd());
-                        }
-                        PostQuitMessage(0);
+                        // Force kill installer process immediately
+                        TerminateProcess(GetCurrentProcess(), 0);
                     }).detach();
                 } else {
                     m_splash.SetProgress(0);
