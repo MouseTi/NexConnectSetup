@@ -29,8 +29,10 @@ install_manifest.txt
 # Temporary files
 *.log
 *.tmp
-*.zip
 ~*
+
+# Local releases (use GitHub releases instead)
+releases/
 
 # IDE
 .vscode/
